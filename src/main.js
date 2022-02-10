@@ -77,7 +77,7 @@ function testRecord() {
 
     pullstream.on('vinfo', (width, height) => {
 
-     mp4stream.setVideoInfo(width, height);
+     mp4stream.setVideoInfo(width, height, 'V0');
      isVSet = true;
      
      if (isVSet && isASet) {
@@ -89,8 +89,8 @@ function testRecord() {
 
     pullstream.on('ainfo', (sample, channels, depth) => {
 
-       mp4stream.setAudioInfo(sample, channels, depth, '0');
-       mp4stream.setAudioInfo(sample, channels, depth, '1');
+       mp4stream.setAudioInfo(sample, channels, depth, 'A0');
+       mp4stream.setAudioInfo(sample, channels, depth, 'A1');
        isASet = true;
 
        if (isVSet && isASet) {
@@ -104,7 +104,7 @@ function testRecord() {
             basets = timestamp;
         }
 
-        mp4stream.pushRGBAData(rgbabuf, timestamp -basets);
+        mp4stream.pushRGBAData(rgbabuf, timestamp -basets, 'V0');
     });
 
     pullstream.on('pcmdata', (pcmbuf, timestamp) => {
@@ -125,16 +125,16 @@ function testRecord() {
  
              if (left > splitsamlenum) {
  
-                mp4stream.pushPCMData(pcmbuf.slice((total - left)*4,  (total - left + splitsamlenum)*4), 
-                                                     timestamp + Math.floor((total - left)*1000/4800) - basets, '0');
-                mp4stream.pushPCMData(pcmbuf.slice((total - left)*4,  (total - left + splitsamlenum)*4), 
-                                                     timestamp + Math.floor((total - left)*1000/4800) - basets, '1');
+               mp4stream.pushPCMData(pcmbuf.slice((total - left)*4,  (total - left + splitsamlenum)*4), 
+                                                    timestamp + Math.floor((total - left)*1000/4800) - basets, 'A0');
+               mp4stream.pushPCMData(pcmbuf.slice((total - left)*4,  (total - left + splitsamlenum)*4), 
+                                                    timestamp + Math.floor((total - left)*1000/4800) - basets, 'A1');
                 left -= splitsamlenum;
  
              } else {
  
-                mp4stream.pushPCMData(pcmbuf.slice((total - left)*4), timestamp + Math.floor((total - left)*1000/4800) - basets, '0');
-                mp4stream.pushPCMData(pcmbuf.slice((total - left)*4), timestamp + Math.floor((total - left)*1000/4800) - basets, '1');
+               mp4stream.pushPCMData(pcmbuf.slice((total - left)*4), timestamp + Math.floor((total - left)*1000/4800) - basets, 'A0');
+               mp4stream.pushPCMData(pcmbuf.slice((total - left)*4), timestamp + Math.floor((total - left)*1000/4800) - basets, 'A1');
                  left = 0;
              }
  
@@ -155,7 +155,6 @@ function testRecord() {
 
 
 function main() {
-
 
     testRecord();
     

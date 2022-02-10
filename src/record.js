@@ -5,6 +5,9 @@ const av = require('./av');
 const gop = require('./gop');
 const codec = require('./codec');
 
+const {
+    Worker, isMainThread, parentPort, workerData
+  } = require('worker_threads');
 
 
 const endcode = Buffer.from([0, 0, 1, 0xb7]);
@@ -45,7 +48,7 @@ class VideoRecordStream {
     _vstream = undefined;
 }
 
-class RecordStream extends EventEmitter {
+class RecordStreamInternal {
 
     _gopCache = undefined;
    
@@ -57,11 +60,11 @@ class RecordStream extends EventEmitter {
     _vstream = undefined;
     _arecordstreams = {};
     _vrecordstreams = {};
-    _streamStatus = STREAMSTATUS.STOPPED;
+    //_streamStatus = STREAMSTATUS.STOPPED;
+
+    _isReady = false;
 
     constructor(fileurl) {
-
-        super();
 
         this._gopCache = new gop.GopCache();
 
@@ -173,17 +176,21 @@ class RecordStream extends EventEmitter {
     }
     async encode() {
 
-        if (this._streamStatus === STREAMSTATUS.STOPPED) {
+        if (!this._isReady) {
             return;
         }
 
+        // if (this._streamStatus === STREAMSTATUS.STOPPED) {
+        //     return;
+        // }
+
         if (this._gopCache.isEmpty()) {
 
-            if (this._streamStatus === STREAMSTATUS.STOPPING) {
+            // if (this._streamStatus === STREAMSTATUS.STOPPING) {
                 
-                await this._mp4_mux.writeTrailer();
-                this._streamStatus = STREAMSTATUS.STOPPED;
-            }
+            //     await this._mp4_mux.writeTrailer();
+            //     this._streamStatus = STREAMSTATUS.STOPPED;
+            // }
 
             return;
         }
@@ -293,12 +300,14 @@ class RecordStream extends EventEmitter {
             yuvbuf = avpacket.payload;
         }
 
-       
+        let start = new Date().getTime();
         let pkt = await vrecordstream._vencoder.encodePacket(yuvbuf, avpacket.timestamp);
 
-        if (!pkt) {
+        if (!this._isReady || !pkt) {
             return;
         }
+
+        console.log(`yuv -> h264 const ${new Date().getTime() - start} `);
       
         pkt.duration = 1;
         pkt.stream_index = vrecordstream._vstream.index;
@@ -361,7 +370,7 @@ class RecordStream extends EventEmitter {
 
                 let pkt = await arecordstream._aencoder.encodePacket(pcm_fltpbufs, arecordstream._pcm_pts);
 
-                if (!pkt || pkt.pts < 0) {
+                if (!this._isReady || !pkt || pkt.pts < 0) {
 
                     continue;
                 }
@@ -397,16 +406,152 @@ class RecordStream extends EventEmitter {
           
         await this._mp4_mux.writeHeader();
 
-        this._streamStatus = STREAMSTATUS.RUNNING;
+        this._isReady = true;
 
     }
 
     async stop() {
 
-        this._streamStatus = STREAMSTATUS.STOPPING;
+        await this._mp4_mux.writeTrailer();
+        this._isReady = false;
 
     }
 
 }
+
+
+
+class RecordStream  {
+
+    _worker = undefined
+
+    constructor(fileurl) {
+        this._worker = new Worker(__filename, {workerData:{fileurl}});
+        this._worker.on('error', (error) => {
+
+            console.log(`work thread error occur: ${error.stack}`);
+        });
+
+        this._worker.on('exit', code => {
+
+            if (code !== 0) {
+
+                console.log(`Worker stopped with exit code ${code}`);
+            }
+        });
+
+    
+    }
+
+    setVideoInfo(width, height, flag) {
+
+        this._worker.postMessage({cmdtype:'setvideoinfo', 
+                                  params:{width, height, flag}});
+    }
+
+    setAudioInfo(sample, channels, depth, flag) {
+
+        this._worker.postMessage({cmdtype:'setaudioinfo', 
+                                  params:{sample, channels, depth, flag}});
+    }
+
+
+    pushRGBAData(rgbabuf, timestamp, flag) {
+
+        this._worker.postMessage({cmdtype:'pushrgbadata', 
+                                  params:{rgbabuf, timestamp, flag}});
+    }
+
+    pushI420Data(yuvbuf, timestamp, flag) {
+
+        this._worker.postMessage({cmdtype:'pushi420data', 
+                                  params:{yuvbuf, timestamp, flag}});
+    }
+
+    pushPCMData(pcmbuf, timestamp, flag) {
+
+        this._worker.postMessage({cmdtype:'pushpcmdata', 
+                                  params:{pcmbuf, timestamp, flag}});
+    }
+   
+    start() {
+        this._worker.postMessage({cmdtype:'start'});
+    }
+
+    stop() {
+
+        this._worker.postMessage({cmdtype:'stop'});
+    }
+
+}
+
+function WorkerThread() {
+
+
+    workerData.recordstream = new RecordStreamInternal(workerData.fileurl);
+
+    parentPort.on('message', msg => {
+
+        let cmdtype = msg.cmdtype;
+        let params = msg.params;
+        let recordstream = workerData.recordstream;
+
+        switch (cmdtype) {
+
+            case 'start': {
+
+                recordstream.start();
+                break;
+            }
+
+            case 'stop': {
+
+                recordstream.stop();
+                break;
+            }
+
+            case 'setvideoinfo': {
+
+                recordstream.setVideoInfo(params.width, params.height, params.flag);
+
+                break;
+            }
+
+            case 'setaudioinfo': {
+
+                recordstream.setAudioInfo(params.sample, params.channels, params.depth, params.flag);
+                break;
+            }
+
+            case 'pushrgbadata': {
+
+                recordstream.pushRGBAData(Buffer.from(params.rgbabuf), params.timestamp, params.flag);
+                break;
+            }
+
+            case 'pushi420data': {
+
+                recordstream.pushI420Data(Buffer.from(params.yuvbuf), params.timestamp, params.flag);
+                break;
+            }
+            case 'pushpcmdata': {
+
+                recordstream.pushPCMData(Buffer.from(params.pcmbuf), params.timestamp, params.flag);
+                break;
+            }
+
+        }
+
+    })
+
+}
+
+
+if (!isMainThread) {
+
+    WorkerThread();
+
+}
+
 
 module.exports = {RecordStream};
