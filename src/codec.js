@@ -212,33 +212,43 @@ class VideoEncoder {
           
     }
 
-    async encode(yuvbuf, timestamp) {
+    async encodePacket(yuvbuf, timestamp) {
 
         let frame = beamcoder.frame({
-             width: this._width,
-             height: this._height,
-             format: 'yuv420p',
-             pts:timestamp
-          }).alloc();
+            width: this._width,
+            height: this._height,
+            format: 'yuv420p',
+            pts:timestamp
+         }).alloc();
 
 
-          copyYUVtoFrame(yuvbuf, frame);
-      
-          let packets = await this._encoder.encode(frame);
+         copyYUVtoFrame(yuvbuf, frame);
+     
+         let packets = await this._encoder.encode(frame);
 
-          if (packets.packets.length > 0) {
+         if (packets.packets.length > 0) {
 
-            let pkt = packets.packets[0];
+            return packets.packets[0];
+         }
 
-           // console.log(`current pkt keyframe: ${pkt.flags.KEY}`)
-       
-             let buf = Buffer.alloc(pkt.size);
-             pkt.data.copy(buf, 0, 0, pkt.size);
+         return undefined;
 
-            return {buf, keyframe:pkt.flags.KEY, timestamp:pkt.pts};
-          }
- 
-          return {};
+    }
+
+    async encode(yuvbuf, timestamp) {
+
+        let pkt = this.encodePacket(yuvbuf, timestamp);
+
+        if (pkt) {
+
+            let buf = Buffer.alloc(pkt.size);
+            pkt.data.copy(buf, 0, 0, pkt.size);
+
+           return {buf, keyframe:pkt.flags.KEY, timestamp:pkt.pts};
+
+        }
+
+        return {};
     }
 
 }
@@ -280,7 +290,7 @@ class AudioEncoder {
         
     }
 
-    async encode(pcm_fltpbufs, timestamp) {
+    async encodePacket(pcm_fltpbufs, timestamp) {
 
         let samplenum = pcm_fltpbufs[0].length/4;
 
@@ -312,14 +322,25 @@ class AudioEncoder {
 
         if (packets.packets.length > 0) {
 
-            let pkt = packets.packets[0];
-
-             let buf = Buffer.alloc(pkt.size);
-             pkt.data.copy(buf, 0, 0, pkt.size);
-
-            return {buf, timestamp:pkt.pts};
+            return packets.packets[0];
         }
  
+        return undefined;
+    }
+
+
+    async encode(pcm_fltpbufs, timestamp) {
+
+        let pkt = this.encodePacket(pcm_fltpbufs, timestamp);
+
+        if (pkt) {
+
+            let buf = Buffer.alloc(pkt.size);
+            pkt.data.copy(buf, 0, 0, pkt.size);
+    
+           return {buf, timestamp:pkt.pts};
+        }
+
         return {};
     }
 
@@ -438,7 +459,7 @@ class RGBConvert {
             let yuvbuf = Buffer.alloc(this._width*this._height*3/2);
             let frame = filter_result[0].frames[0];
 
-            console.log(`---------- not copy rgba->yuv ${new Date().getTime() - start}`)
+            //console.log(`---------- not copy rgba->yuv ${new Date().getTime() - start}`)
 
             copyFrametoYuvbuf(frame, yuvbuf);
            return yuvbuf;
