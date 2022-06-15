@@ -4,12 +4,19 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node ./src/main.js"
+    "start": "DISPLAY=:0 node ./src/main.js"
   },
   "author": "tdcr5",
   "license": "ISC",
   "dependencies": {
     "beamcoder": "^0.6.15",
-    "node-media-server": "^2.3.8"
+    "canvas": "^2.9.1",
+    "fs-extra": "^10.0.1",
+    "gl": "^5.0.0",
+    "gl-matrix": "^3.4.3",
+    "heapdump": "^0.3.15",
+    "node-media-server": "^2.3.8",
+    "opencv4nodejs": "^5.6.0",
+    "soundtouchjs": "^0.1.30"
   }
 }
