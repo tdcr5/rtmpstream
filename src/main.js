@@ -12,7 +12,9 @@ const fsExtra = require('fs-extra');
 const path = require('path');
 const DrawCube = require('./drawcube')
 const DrawCylinder = require('./drawcylinder')
-const DrawHemisphere = require('./drawhemisphere')
+const DrawHemisphere = require('./drawhemisphere');
+const { SoundTouch } = require('./thirdparty/soundtouch');
+
 
 
 
@@ -648,9 +650,131 @@ setInterval(()=>{
 
 }
 
+function testSoundTouch() {
+
+    let pullUrl = 'rtmp://192.168.6.18:1935/live/a123456';
+    let pushUrl = 'rtmp://192.168.6.18:1935/push/p654321';
+
+    let pullstream = new rs.RtmpPullStream(pullUrl);
+    let pushstream = new rs.RtmpPushStream(pushUrl);
+
+    let st = new SoundTouch()
+     st.rate = 1;
+    st.tempo = 1;
+    st.pitch = 1.3;
+
+    let achannls = 0;
+
+    pullstream.on('vinfo', (width, height) => {
+
+        pushstream.setVideoInfo(width, height);
+        
+    });
+
+    let start = new Date().getTime();
+
+    pullstream.on('ainfo', (sample, channels, depth) => {
+
+        achannls = channels
+
+        let inputAudioParam = {sample, channels, depth}
+        let outputAudioParam = {
+            format:'aac',
+            sample:48000,
+            channels:1,
+            depth:depth
+        }
+
+        pushstream.setAudioInfo(inputAudioParam, outputAudioParam);
+
+    });
+
+
+    pullstream.on('rgbadata', (rgbabuf, timestamp) => {
+
+
+        pts =  new Date().getTime() - start; 
+
+       pushstream.pushRGBAData(rgbabuf, pts);
+    });
+
+    pullstream.on('pcmdata', (pcmbuf, timestamp) => {
+
+        let pcm16 = new Int16Array(pcmbuf)
+
+        let numFrames = pcm16.length/achannls;
+
+        let samples = new Float32Array(numFrames * 2);
+
+
+        if (achannls === 2) {
+
+            for(let i = 0; i < numFrames; i++) {
+
+                samples[2*i] = pcm16[2*i]/32767.0;
+                samples[2*i+1] = pcm16[2*i+1]/32767.0;
+            }
+    
+        } else {
+
+            for(let i = 0; i < numFrames; i++) {
+
+                samples[2*i] = pcm16[i]/32767.0;
+                samples[2*i+1] = pcm16[i]/32767.0;
+    
+            }
+
+        }
+
+        st._inputBuffer.putSamples(samples, 0, numFrames);
+        st.process()
+
+        console.log(`st._outputBuffer.frameCount = ${st._outputBuffer.frameCount}`)
+
+        if(st._outputBuffer.frameCount > 0) {
+
+             let dstFrames = st._outputBuffer.frameCount;
+            let dessamples = new Float32Array(dstFrames * 2);
+
+            let dstpcm16 = new Int16Array(dstFrames*achannls)
+
+            st._outputBuffer.receiveSamples(dessamples, dstFrames);
+
+
+            if (achannls === 2) {
+
+                for (let i = 0; i < dstFrames; i++) {
+
+                    dstpcm16[2*i] = Math.floor(dessamples[2*i]*32767)
+                    dstpcm16[2*i+1] = Math.floor(dessamples[2*i+1]*32767)
+                }
+
+            }else {
+
+                dstpcm16[i] = Math.floor(dessamples[2*i]*32767)
+
+            }
+
+            pts =  new Date().getTime() - start; 
+
+            pushstream.pushPCMData(dstpcm16.buffer, pts);
+
+        }
+
+      });
+
+    pullstream.start();
+    pushstream.start();
+
+
+
+
+}
+
 
 function main() {
 
+    testSoundTouch()
   //  testCube();
 
   //  testGif();
@@ -660,9 +784,9 @@ function main() {
    // testRecord();
 
    // testRtmp();
-  // testMultiFunc();
+
   // testDemux2();
-    testRtmp();
+
 
     // let index = 0;
     // setInterval(()=>{
