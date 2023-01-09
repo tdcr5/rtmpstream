@@ -1,4 +1,4 @@
-const NodeRtmpClient = require('node-media-server/src/node_rtmp_client');
+const NodeRtmpClient = require('./node_rtmp_client');
 const AV = require('node-media-server/src/node_core_av');
 const stat = require('./statisticsdata');
 const EventEmitter = require('events');
@@ -54,7 +54,7 @@ class RtmpClient {
             
             //parse video tag
             let frame_type = (videData[0] >> 4) & 0x0f; //1: key frame 2:inter frame
-            let codec_id = videData[0] & 0x0f; //7:h264, 12:h265
+            let codec_id = videData[0] & 0x0f; //74:h264, 12:h265
             let avpacket_type = videData[1]; //0: avc sequence header 1: nalu
             let composetime = videData.readUIntBE(2, 3);
 
@@ -301,11 +301,13 @@ class RtmpClient {
                 return;
             }
 
-            this._noderc.stop();
+            //this._noderc.stop();
 
             if (this._ispublish) {
 
                 logger.info(`RTMP Client ${this._streamPath} push close`);
+
+                this._event.emit('pushstatus', false);
  
             } else {
 

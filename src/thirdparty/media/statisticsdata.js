@@ -8,7 +8,7 @@ class StatisticsData {
     _aFrameRate = 0;
     _aBitRate = 0;
     _ticket = undefined;
-    _sec = 30;
+    _sec = 10;
     _streamPath = '';
 
     _v_index = 0;

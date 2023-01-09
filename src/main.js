@@ -14,6 +14,8 @@ const DrawCube = require('./drawcube')
 const DrawCylinder = require('./drawcylinder')
 const DrawHemisphere = require('./drawhemisphere');
 const { SoundTouch } = require('./thirdparty/soundtouch');
+const sharp = require('sharp');
+const MP4Parser = require('./mp4/mp4-parser')
 
 
 
@@ -22,7 +24,7 @@ let canvas, canvasCtx, canvastop, canvastopCtx, textrgba, cube, cylinder, hemisp
 
 let i = 0
 
-let cwidth = 1280;
+let cwidth = 720;
 let cheight = 720
 
 
@@ -155,8 +157,19 @@ function testRtmp() {
     let pullUrl = 'rtmp://192.168.6.18:1935/live/a123456';
     let pushUrl = 'rtmp://192.168.6.18:1935/push/p654321';
 
+    let  encoder =  {
+        name: "libx264",
+        bitrate: 2000000,
+        params: {
+            preset: "medium",
+            profile: "baseline",
+            level: "3.1",
+            tune: "zerolatency"
+        }
+    }
+
     let pullstream = new rs.RtmpPullStream(pullUrl);
-    let pushstream = new rs.RtmpPushStream(pushUrl);
+    let pushstream = new rs.RtmpPushStream(pushUrl, encoder);
 
 
     let w, h;
@@ -197,33 +210,34 @@ function testRtmp() {
             index++;
         }
 
-        let now = index%3;
+         let now = index%3;
 
+        // let now = 0;
         let adjustrgba;
 
-        if (now === 0) {
+        // if (now === 0) {
 
-            adjustrgba = renderCube(rgbabuf, w, h);
+             adjustrgba = renderCube(rgbabuf, w, h);
 
-        } else if (now === 1) {
+        // } else if (now === 1) {
 
-            adjustrgba = renderCylinder(rgbabuf, w, h);
-        } else {
+        //     adjustrgba = renderCylinder(rgbabuf, w, h);
+        // } else {
 
-            adjustrgba = renderHemisphere(rgbabuf, w, h);
-        }
+      //       adjustrgba = renderHemisphere(rgbabuf, w, h);
+        // }
 
         
    
-        // let adjustrgba = renderCube(rgbabuf, w, h);
-       // let adjustrgba = renderCylinder(rgbabuf, w, h);
+    //     // let adjustrgba = renderCube(rgbabuf, w, h);
+    //    // let adjustrgba = renderCylinder(rgbabuf, w, h);
        // let adjustrgba = renderHemisphere(rgbabuf, w, h);
 
-        if (adjustrgba.length !== w*h*4) {
+    //     if (adjustrgba.length !== w*h*4) {
 
-            console.log(`process image error`)
-            return
-        }
+    //         console.log(`process image error`)
+    //         return
+    //     }
 
         pushstream.pushRGBAData(adjustrgba, timestamp);
     });
@@ -269,8 +283,6 @@ function testRtmp() {
 
     pullstream.start();
     pushstream.start();
-
-
 
 
 }
@@ -771,10 +783,288 @@ function testSoundTouch() {
 
 }
 
+function startMemRecord() {
+
+    const format = function (bytes) {
+
+        return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+    };
+    
+    let second = 5;
+    
+    this.memrecordinterval = setInterval(() => {
+    
+    const memoryUsage = process.memoryUsage();
+    
+    console.log(JSON.stringify({
+
+        rss: format(memoryUsage.rss), // 常驻内存
+        heapTotal: format(memoryUsage.heapTotal), // 总的堆空间
+        heapUsed: format(memoryUsage.heapUsed), // 已使用的堆空间
+        external: format(memoryUsage.external), // C++ 对象相关的空间
+        }, null, 2));
+    
+    }, second*1000);
+    
+    
+    
+}
+
+async function sleep(ms) {
+
+
+    return new Promise((resolve) => {
+
+
+        setTimeout(() => {
+
+            resolve();
+            
+        }, ms);
+
+
+    })
+
+}
+
+async function doJob() {
+
+   // console.log(`----- start do job`)
+
+
+    await sleep(1);
+
+    //console.log(`----------sleep a while`)
+
+
+    doJob();
+
+}
+
+
+
+function testTailRecurtion() {
+
+
+    doJob();
+    startMemRecord();
+
+}
+
+
+
+async function testFacePic() {
+
+
+    let faceImage = await loadImage('77.png');
+    let bodyImage = await loadImage('219.png');
+
+    let slienceImage = await loadImage('220.png');
+
+    console.log(`faceimage len ${faceImage.width}`);
+
+
+
+    let faceCanvas = createCanvas(1080, 1920);
+    let faceCtx = faceCanvas.getContext('2d');
+
+    let x = 392
+    let y = 169
+    let w = 240
+    let h = 241
+
+
+    faceCtx.drawImage(bodyImage, 0, 0, 1080, 1920);
+    faceCtx.drawImage(faceImage, x, y, w, h);
+    
+    let faceBodyImageData = faceCtx.getImageData(0, 0, 1080, 1920)
+
+
+
+    let slienceCanvas = createCanvas(1080, 1920);
+    let slienceCtx = slienceCanvas.getContext('2d');
+    slienceCtx.drawImage(slienceImage, 0, 0, 1080, 1920);
+
+    let slienceImageData = slienceCtx.getImageData(0, 0, 1080, 1920)
+
+
+    let pushUrl = 'rtmp://192.168.6.18:1935/push/p654321';
+
+    let pushstream = new rs.RtmpPushStream(pushUrl);
+
+    pushstream.start();
+
+ 
+
+    pushstream.setVideoInfo(1080, 1920);
+        
+
+    let inputAudioParam = {sample:48000, channels:1, depth:16}
+    let outputAudioParam = {
+        format:'aac',
+        sample:48000,
+        channels:1,
+        depth:16
+    }
+
+    pushstream.setAudioInfo(inputAudioParam, outputAudioParam);
+
+ 
+    let ts = 0;
+
+    let i = 0;
+
+    setInterval(()=>{
+
+        if (i%12 > 0) {
+
+            pushstream.pushRGBAData(faceBodyImageData.data, ts);
+
+        } else {
+
+            pushstream.pushRGBAData(slienceImageData.data, ts);
+        }
+
+        
+        i++;
+        ts += 40;
+
+
+    }, 40)
+
+
+}
+
+
+async function  testSharpLib() {
+
+
+    let image = sharp('77.png');
+
+    let meta = await image.metadata()
+
+
+    let rgba = await image.raw().toBuffer()
+
+
+    console.log(`rgba lenth ${rgba.length}`)
+
+
+}
+
+function testMP4() {
+
+    let source = fsExtra.readFileSync('city.mp4');
+
+    let parser =  new MP4Parser(source);
+
+    parser.parse()
+
+
+
+}
+
+
+const pngdir = '/workSpace/project/pic/785479866391998601.png_248';
+const pngcount = 248;
+
+async function testSyncLoadPng() {
+
+
+
+    let i = 1;
+
+    let loop = 1;
+    let curloop = loop
+
+    let start = new Date().getTime()
+
+  
+    while (curloop > 0) {
+
+        let pngpath = path.join(pngdir, `${i}.png`)
+
+        let pngData =  fsExtra.readFileSync(pngpath)
+
+        let nowindex = i
+
+        let {data, info} = await sharp(pngData).raw().toBuffer({ resolveWithObject: true })
+
+      //  console.log(` ${i} png, width ${info.width} height ${info.height} `)
+
+        if (i%pngcount == 0) {
+            i = 1;
+            curloop--;
+        } else {
+            i++;
+        }
+
+    }
+
+    let end  = new Date().getTime()
+
+    console.log(`Sync Decode, decode ${pngcount*loop} png, cost ${end-start} ms, ${(end-start)/(pngcount*loop)} ms per png, ${1000*pngcount*loop/(end-start)} png ps`)
+
+
+}
+
+
+async function testAsyncLoadPng() {
+
+
+    let i = 1;
+
+    let loop = 1;
+    let curloop = loop
+
+    let start = new Date().getTime()
+
+    let tasks = []
+
+    while (curloop > 0) {
+
+        let pngpath = path.join(pngdir, `${i}.png`)
+
+        let pngData =  fsExtra.readFileSync(pngpath)
+
+        let nowindex = i
+
+        let oneTask = sharp(pngData).raw().toBuffer({ resolveWithObject: true }).then(({data, info}) => {
+
+            //console.log(` ${nowindex} png, width ${info.width} height ${info.height} `)
+        })
+        tasks.push(oneTask)
+
+      //  console.log(` ${i} png, width ${info.width} height ${info.height} `)
+
+        if (i%pngcount == 0) {
+            i = 1;
+            curloop--;
+        } else {
+            i++;
+        }
+
+    }
+
+
+   await Promise.all(tasks)
+
+    let end  = new Date().getTime()
+
+    console.log(`Async Decode, decode ${pngcount*loop} png, cost ${end-start} ms, ${(end-start)/(pngcount*loop)} ms per png, ${1000*pngcount*loop/(end-start)} png ps`)
+
+
+}
 
 function main() {
 
-    testSoundTouch()
+
+    testAsyncLoadPng()
+    testSyncLoadPng()
+  //  testMP4();
+
+    //testTailRecurtion();
+    // testSoundTouch()
   //  testCube();
 
   //  testGif();
@@ -783,7 +1073,8 @@ function main() {
 
    // testRecord();
 
-   // testRtmp();
+  // testFacePic();
+   //  testRtmp();
 
   // testDemux2();
 
