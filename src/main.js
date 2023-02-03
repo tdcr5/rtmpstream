@@ -2,7 +2,7 @@
 const rs = require('./thirdparty/media')
 const heapdump = require('heapdump');
 let startMem = process.memoryUsage();
-const beamcoder = require('beamcoder');
+const beamcoder = require('./thirdparty/beamcoder_contextaware');
 const URL = require('url')
 const utils = require('./utils')
 const { Image, loadImage, createCanvas, ImageData, DOMMatrix, registerFont } = require('canvas');
@@ -16,6 +16,13 @@ const DrawHemisphere = require('./drawhemisphere');
 const { SoundTouch } = require('./thirdparty/soundtouch');
 const sharp = require('sharp');
 const MP4Parser = require('./mp4/mp4-parser')
+const cv = require('opencv4nodejs')
+const {PngImg} = require('png-img');
+const im = require('imagemagick');
+const { resolve } = require('path');
+var jpg = require('./thirdparty/turbo_jpeg')
+
+const {RenderCanvas} = require('./thirdparty/rendercanvas')
 
 
 
@@ -964,13 +971,35 @@ function testMP4() {
 
 }
 
+function readPngAsy(path) {
+
+    return new Promise((resolve, reject) => {
+
+         sharp(path).raw().toBuffer((err, data, info) => {
+
+
+            resolve({data, info})
+
+
+         })
+
+
+        // im.readMetadata(path, (err, result)=> {
+
+            
+    
+        //     resolve(result);
+
+        // })
+
+    })
+}
+
 
 const pngdir = '/workSpace/project/pic/785479866391998601.png_248';
 const pngcount = 248;
 
 async function testSyncLoadPng() {
-
-
 
     let i = 1;
 
@@ -986,13 +1015,20 @@ async function testSyncLoadPng() {
 
         let pngData =  fsExtra.readFileSync(pngpath)
 
+        
+
         let nowindex = i
 
-        let {data, info} = await sharp(pngData).raw().toBuffer({ resolveWithObject: true })
+      //let {data, info} = await readPngAsy(pngpath)
+
+          let {data, info} = await sharp(pngData, {sequentialRead:true}).raw().toBuffer({ resolveWithObject: true })
+         // cv.imdecode(pngData, cv.IMREAD_UNCHANGED)
+       //   const img = new PngImg(pngData);
 
       //  console.log(` ${i} png, width ${info.width} height ${info.height} `)
 
-        if (i%pngcount == 0) {
+      
+      if (i%pngcount == 0) {
             i = 1;
             curloop--;
         } else {
@@ -1029,9 +1065,9 @@ async function testAsyncLoadPng() {
 
         let nowindex = i
 
-        let oneTask = sharp(pngData).raw().toBuffer({ resolveWithObject: true }).then(({data, info}) => {
+        let oneTask = sharp(pngData,{sequentialRead:true}).raw().toBuffer({ resolveWithObject: true }).then(({data, info}) => {
 
-            //console.log(` ${nowindex} png, width ${info.width} height ${info.height} `)
+         //   console.log(` ${nowindex} png, width ${info.width} height ${info.height} `)
         })
         tasks.push(oneTask)
 
@@ -1056,11 +1092,221 @@ async function testAsyncLoadPng() {
 
 }
 
+async function testEncodeJpg() {
+
+
+    // let {data:raw, info} = await sharp('./220.png', {sequentialRead:true}).raw().toBuffer({ resolveWithObject: true })
+
+
+    // var options = {
+    //     format: jpg.FORMAT_RGBA,
+    //     width: 1080,
+    //     height: 1920,
+    //     subsampling: jpg.SAMP_420,
+    //     quality:100
+    //   }
+      
+    //   var encoded = jpg.compressSync(raw, options)
+
+    //   fsExtra.writeFileSync('./220-true.jpg', encoded)
+
+
+    await sharp('./220.png').jpeg({quality:100}).toFile('./220.jpg')
+
+    await sharp('./220.png').extractChannel('alpha').jpeg({quality:100}).toFile('./220-grey.jpg')
+      
+}
+
+
+async function testJpegDecode() {
+
+   let jpgbuf =  fsExtra.readFileSync('./220.jpg')
+
+   jpgbuf = Buffer.from(jpgbuf)
+
+  // let pkt = beamcoder.packet({data:jpgbuf, size: jpgbuf.byteLength,pts:1000})
+
+
+ //   let jpgDec = beamcoder.decoder({name:'mjpeg_cuvid', pkt_timebase:[1, 1000]});
+
+//    let jpgDec = beamcoder.decoder({name:'mjpeg'});
+
+  
+   let start = new Date().getTime()
+   let total = 0;
+   let count = 1000
+
+   for(let i = 0; i < count; i++){
+
+    await sharp(jpgbuf).raw().toBuffer({resolveWithObject:true})
+    total++;
+
+   // let dec_result = await jpgDec.decode(pkt);
+
+    // if (dec_result.frames.length > 0) {
+
+    //     let frame = dec_result.frames[0];
+
+
+
+
+
+    //     total++;
+    //   //  console.log(`decode jpg suc`)
+
+    // } else {
+
+    //     console.log(`decode jpg fail`)
+    // }
+
+}
+
+
+let end  = new Date().getTime()
+
+console.log(`Decode jpg, decode ${count}, suc ${total}, cost ${end-start} ms, ${(end-start)/total} ms per jpg, ${1000*total/(end-start)} jpg ps`)
+
+
+}
+
+
+
+let pts = 1;
+
+let jpgDec = beamcoder.decoder({name:'mjpeg_cuvid', pkt_timebase:[1,10]});
+
+async function gpuDecodeJPG(jpgbuf) {
+
+
+  //  console.log(`---packet pts ${pts}`)
+    let pkt = beamcoder.packet({data:jpgbuf, size: jpgbuf.byteLength, pts})
+
+    pts++;
+
+//   for(let i = 0; i < 4; i++){
+
+        let dec_result = await jpgDec.decode([pkt, pkt, pkt, pkt]]);
+        if (dec_result.frames.length > 0) {
+
+            let frame = dec_result.frames[dec_result.frames.length - 1];
+
+            console.log(`---frame  data ${ frame.data[0][1088*960+540]}`)
+
+            let ybuf = Buffer.alloc(frame.linesize[0]*frame.height)
+            let uvbuf = Buffer.alloc(frame.linesize[1]*frame.height/2)
+
+            frame.data[0].copy(ybuf, 0, 0, frame.linesize[0]*frame.height)
+            frame.data[1].copy(uvbuf, 0, 0, frame.linesize[1]*frame.height/2)
+
+            
+
+
+
+            return {ybuf, uvbuf, width:frame.width, height:frame.height, linesize:frame.linesize[0]}
+
+        } else {
+
+            console.log(`decode jpg fail`)
+        }
+
+  //  }
+}
+
+async function testGPU_PNG() {
+
+    // let {data, info} = await sharp('./220.png', {sequentialRead:true}).raw().toBuffer({ resolveWithObject: true })
+
+    // let renderCanvas = new RenderCanvas(info.width, info.height);
+
+
+    
+    // renderCanvas.putImageData({data, width:info.width, height:info.height}, 0, 0)
+
+
+
+    // let imagedata = renderCanvas.getImageData(0, 0, info.width, info.height);
+
+    // await sharp(imagedata.data, {raw:{
+    //     width: info.width,
+    //     height: info.height,
+    //     channels:4
+    // }}).png().toFile('./220-compose.png')
+
+
+    let jpgbuf =  fsExtra.readFileSync('./220.jpg')
+    let jpgmaskbuf =  fsExtra.readFileSync('./220-grey.jpg')
+
+
+    let start = new Date().getTime()
+    let count = 100
+
+    for(let i = 0; i < count; i++) {
+
+         await gpuDecodeJPG(jpgbuf)
+         await gpuDecodeJPG(jpgmaskbuf)
+    }
+
+    let end = new Date().getTime()
+
+    console.log(`Async Decode, decode ${count} jpg, cost ${end-start} ms, ${(end-start)/(count)} ms per jpg, ${1000*count/(end-start)} jpg ps`)
+
+
+    let bodymask = await gpuDecodeJPG(jpgmaskbuf)
+    let body = await gpuDecodeJPG(jpgbuf)
+
+
+    let renderCanvas = new RenderCanvas(body.width, body.height);
+
+
+    
+   renderCanvas.putNV12ImageData(body, bodymask, 0, 0)
+
+   // renderCanvas.putNV12ImageData(bodymask, body, 0, 0)
+
+    let imagedata = renderCanvas.getImageData(0, 0, body.width, body.height);
+
+    await sharp(imagedata.data, {raw:{
+        width: body.width,
+        height: body.height,
+        channels:4
+    }}).png().toFile('./220-compose.png')
+
+}
+
+
+
+
 function main() {
 
+  //  testGPU_PNG()
+ //  testJpegDecode();
 
-    testAsyncLoadPng()
-    testSyncLoadPng()
+    testEncodeJpg().then( ()=>{
+
+        testGPU_PNG();
+    });
+
+
+//     let v = sharp.versions;
+
+//     console.log(`Sharp Version: ${JSON.stringify(v)}`)
+
+//     let cur = sharp.concurrency()
+//     let simd = sharp.simd()
+//     sharp.cache(false)
+
+//     console.log(`Sharp, concurrency ${cur} simd ${simd}`)
+
+//     // cur = sharp.concurrency(10)
+//     // simd = sharp.simd(true)
+
+//     // console.log(`Sharp, concurrency ${cur} simd ${simd}`)
+
+
+
+
+// //   testAsyncLoadPng()
+//   testSyncLoadPng()
   //  testMP4();
 
     //testTailRecurtion();
